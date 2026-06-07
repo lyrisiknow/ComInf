@@ -1,1 +1,1 @@
-from tqdm impor tqdm
+from tqdm import tqdm
