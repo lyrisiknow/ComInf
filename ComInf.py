@@ -1,1 +1,1 @@
-
+from tqdm impor tqdm
