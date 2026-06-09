@@ -23,6 +23,14 @@ if __name__ == '__main__':
         help="please choose the dataset to use"
     )
     
+    parser.add_argument(
+        "--datapath", 
+        type=str, 
+        required=True, 
+        default=".dataset/",
+        help="please choose the datapath to use"
+    )
+    
     args = parser.parse_args()
     dataset = args.dataset
     if "LFR" in dataset:
@@ -77,6 +85,29 @@ if __name__ == '__main__':
             print(f"Generation failed: {e}")
             print("Please try adjusting parameters further (e.g., increasing MAX_I or loosening community size constraints slightly).")
     
+    elif dataset == "mastodon":
+        edges = set()
+        data_path = args.datapath + 'mastodon/'
+        with open(data_path+'Fakenews24_edges', 'r') as f:
+            for l in f:
+                if l.strip() != '':
+                    edges.add((l.strip().split(' ')[0], l.strip().split(' ')[1]))
+        G = nx.DiGraph()
+        G.add_edges_from(edges)
+        N = len(G)
+        node_communities = {}
+        
+        with open(data_path + 'Fakenews24_instances', 'r') as f:
+            for l in f:
+                if l.strip() != '':
+                    node_communities[l.strip().split()[0]] = l.strip().split()[1]
+        nodes_idx = {}
+        for i, node in enumerate(node_communities):
+            nodes_idx[node] = i
+    else:
+        print(f"Error: no dataset -> '{dataset}'")
+        return
+    
     unique_comms = sorted(list(set(tuple(G.nodes[n]['community']) for n in G.nodes)))
 
     comm_to_id = {comm: i for i, comm in enumerate(unique_comms)}
@@ -97,7 +128,7 @@ if __name__ == '__main__':
         P[v, u] = weight
     A = A * P
 
-    if dataset in ['LFR(Small)', 'Workplace']: 
+    if dataset in ['LFR(Small)']: 
         n_sim_range = [50,100,150,200,250]
     else:
         n_sim_range = [500,1000,1500,2000,2500]
