@@ -15,7 +15,6 @@ def get_size_factor(comm_id):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
-    # choices 参数可以限制用户只能输入指定的值
     parser.add_argument(
         "--dataset", 
         type=str, 
@@ -24,7 +23,6 @@ if __name__ == '__main__':
         help="please choose the dataset to use"
     )
     
-    # 2. 解析参数
     args = parser.parse_args()
     dataset = args.dataset
     if "LFR" in dataset:
