@@ -1,18 +1,10 @@
 import networkx as nx
-import matplotlib.pyplot as plt
 import numpy as np
 from ComInf import ComInf
-import json
-from collections import Counter
-from utils import result_record, modified_kmeans_fast_log_partitioned, fast_mi_and_prob, IC, generate_infections
+from utils import result_record, modified_kmeans_fast_log_partitioned, fast_mi_and_prob, generate_infections
 import argparse
 
-def get_size_factor(comm_id):
-    community_counts = Counter(node_communities.values())
-    size = community_counts[comm_id]
-    return np.log1p(size)
-
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     
     parser.add_argument(
@@ -163,9 +155,10 @@ if __name__ == '__main__':
         iterations = 10000
         lr = 0.01
         auc, t, f1 = ComInf(G, N, S, C, A, gamma, prune_network, iterations = iterations, lr=lr)
-        result_record("ComInf", auc, "LFR", param=f'n{N}auc', file = "result.jsonl")
-        result_record("ComInf", f1, "LFR", param=f'n{N}f1', file = "result.jsonl")
-        result_record("ComInf", t, "LFR", param=f'n{N}', file = "time.jsonl")    
+        result_record("ComInf", auc, dataset, param='auc', file = "result.jsonl")
+        result_record("ComInf", f1, dataset, param='f1', file = "result.jsonl")
+        result_record("ComInf", t, dataset, file = "time.jsonl")    
     
-
+if __name__ == '__main__':
+    main()
     

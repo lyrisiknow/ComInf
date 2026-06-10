@@ -2,6 +2,7 @@ import networkx as nx
 import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 import json
+from collections import Counter
 
 def calculate_continuous_auc(A_pred, G):
     nodes = sorted(G.nodes())
@@ -261,3 +262,8 @@ def generate_infections(A, num_sim = 100):
 
     print("average length of infections: ", average_paths / len(trees))
     return S
+
+def get_size_factor(node_communities, comm_id):
+    community_counts = Counter(node_communities.values())
+    size = community_counts[comm_id]
+    return np.log1p(size)
