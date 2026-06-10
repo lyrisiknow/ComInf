@@ -79,7 +79,7 @@ def main():
     
     elif dataset == "mastodon":
         edges = set()
-        data_path = args.datapath + 'mastodon/'
+        data_path = args.datapath + 'Mastodon/'
         with open(data_path+'Fakenews24_edges', 'r') as f:
             for l in f:
                 if l.strip() != '':
