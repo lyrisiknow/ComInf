@@ -41,6 +41,16 @@ The three real-network datasets are included in `dataset/`. The two LFR syntheti
 | `workplace` | Workplace, undirected | 92 |
 | `mastodon` | Mastodon, directed | 1340 |
 
+
+### Dataset Sources
+
+The `eu` and `workplace` datasets are obtained from publicly available external sources:
+
+- **eu (Email-Eu-core):** Obtained from the [Stanford Network Analysis Project (SNAP)](https://snap.stanford.edu/data/email-Eu-core.html). The dataset contains email communication links between members of a European research institution, along with department membership labels.
+- **workplace:** Obtained from the [SocioPatterns Project](https://sociopatterns.org/datasets/contacts-in-a-workplace/). The dataset contains face-to-face contact records collected in a workplace, along with department membership labels.
+
+The corresponding network edges and community labels used in our experiments are provided in the `dataset/eu/` and `dataset/workplace/` directories.
+
 ## Running Experiments
 
 Run all five datasets with default settings:
