@@ -116,14 +116,3 @@ Node counts may be selected within 100–300 or 1000–3000. Training and simula
 settings follow `main.py`; only the LFR generation parameters vary by size range.
 Results are saved under `results_node/<UTC timestamp>/LFR_<nodes>/`, using the
 same file formats described below. Run `python main_node.py --help` for options.
-
-## Results
-
-Each invocation saves results in a new `results_method/<UTC timestamp>/` directory, with a subdirectory for each dataset. Use `--output-dir` to change the results root.
-
-- **`.json`**: evaluation metrics, training time, experiment settings, and optimization history.
-- **`.npz`**: inferred network probabilities and adjacency, source estimates, simulated snapshots, and ground truth.
-- **`result.jsonl`**: combined records for successful experiments.
-- **`errors.jsonl`**: dataset errors, if any occur.
-
-Reported metrics include ROC-AUC, PR-AUC (average precision), precision, recall, F1, and source identification accuracy. Previous runs are preserved.
