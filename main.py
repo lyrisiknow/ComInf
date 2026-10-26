@@ -1,16 +1,17 @@
-"""Run the two-stage method over different numbers of diffusion snapshots.
+"""Run ComInf on all five datasets and save each experiment separately.
 
 Examples:
-    python main.py --dataset 'LFR(Small)'
-    python main.py --dataset 'LFR(Small)' --n-sim 50 100 --seed-iterations 500 --iterations 10000
-    python main.py --dataset mastodon --datapath ./dataset --xi 0.1
+    python main.py
+    python main.py --dataset eu workplace mastodon
+    python main.py --dataset 'LFR(Small)' --n-sim 50 100
 
-Each run writes a metrics record and an NPZ containing probabilities, seed
-responsibilities and original node IDs. Simulated seed identities are used
-only for evaluation; the method receives no ground-truth seed information.
+Default cascade counts: 100 for LFR(Small), 1000 for LFR(Medium),
+and the node count for each real network. Real-network cascades are simulated
+from the supplied edges and community labels, not observed propagation data.
 """
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -18,8 +19,11 @@ import networkx as nx
 import numpy as np
 import torch
 
-from method import ComInf
+from ComInf import ComInf
 from utils import fast_mi_and_prob, modified_kmeans_fast_log_partitioned
+
+
+DATASETS = ('LFR(Small)', 'LFR(Medium)', 'eu', 'workplace', 'mastodon')
 
 
 def positive_int(value):
@@ -31,9 +35,10 @@ def positive_int(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--dataset', choices=['LFR(Small)', 'LFR(Medium)', 'mastodon'], default='LFR(Small)')
+    parser.add_argument('--dataset', nargs='+', choices=['all', *DATASETS], default=['all'],
+                        help='one or more datasets; default: all five')
     parser.add_argument('--datapath', type=Path, default=Path(__file__).resolve().parent / 'dataset')
-    parser.add_argument('--n-sim', type=positive_int, nargs='+', help='cascade counts; defaults to the original dataset-specific sweep')
+    parser.add_argument('--n-sim', type=positive_int, nargs='+', help='cascade counts; default: LFR node count or real-network node count')
     parser.add_argument('--seed-iterations', type=positive_int, default=500, help='Stage I: latent-seed estimation updates')
     parser.add_argument('--iterations', type=positive_int, default=10000, help='Stage II: weighted network updates')
     parser.add_argument('--lr', type=float, default=0.01)
@@ -67,27 +72,48 @@ def load_network(dataset, datapath, seed):
         labels = [frozenset(graph.nodes[u]['community']) for u in original_ids]
         graph = nx.relabel_nodes(graph, {u: i for i, u in enumerate(original_ids)}, copy=True)
     else:
-        folder = datapath / 'Mastodon'
+        files = {
+            'eu': ('eu', 'edge.txt', 'department.txt', True, 0),
+            'workplace': ('workplace', 'edge.txt', 'department.txt', False, 1),
+            'mastodon': ('Mastodon', 'Fakenews24_edges', 'Fakenews24_instances', True, 0),
+        }
+        if dataset not in files:
+            raise ValueError(f'Unknown dataset: {dataset}')
+        directory, edge_file, label_file, directed, skip = files[dataset]
+        folder = datapath / directory
         labels_by_node = {}
-        with (folder / 'Fakenews24_instances').open(encoding='utf-8') as handle:
-            for line in handle:
-                if line.strip():
-                    node, community = line.split()
-                    labels_by_node[node] = community
-        # File order defines the reproducible matrix/prior ordering.
+        with (folder / label_file).open(encoding='utf-8-sig') as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip() or line.lstrip().startswith('#'):
+                    continue
+                fields = line.split(maxsplit=1)
+                if len(fields) != 2:
+                    raise ValueError(f'{label_file}:{line_number}: expected node and label')
+                node, community = fields
+                community = community.strip()
+                if node in labels_by_node and labels_by_node[node] != community:
+                    raise ValueError(f'{label_file}:{line_number}: conflicting labels for {node}')
+                labels_by_node[node] = community
+        # Label-file order defines reproducible matrix/prior ordering and keeps
+        # labeled isolated nodes. String labels (e.g. DISQ) need no conversion.
         original_ids = list(labels_by_node)
         node_index = {node: i for i, node in enumerate(original_ids)}
-        graph = nx.DiGraph()
+        graph = nx.DiGraph() if directed else nx.Graph()
         graph.add_nodes_from(range(len(original_ids)))
-        with (folder / 'Fakenews24_edges').open(encoding='utf-8') as handle:
-            for line in handle:
-                if not line.strip():
+        with (folder / edge_file).open(encoding='utf-8-sig') as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip() or line.lstrip().startswith('#'):
                     continue
-                source, target = line.split()
+                fields = line.split()
+                if len(fields) != skip + 2:
+                    raise ValueError(f'{edge_file}:{line_number}: expected {skip + 2} columns')
+                source, target = fields[skip:]
                 if source not in node_index or target not in node_index:
-                    raise ValueError(f'Missing community label for edge {source} -> {target}')
+                    raise ValueError(f'{edge_file}:{line_number}: missing community label for edge {source} -> {target}')
+                # Repeated workplace contacts become one undirected edge.
                 graph.add_edge(node_index[source], node_index[target])
         labels = [labels_by_node[node] for node in original_ids]
+        nx.set_node_attributes(graph, dict(enumerate(labels)), 'original_label')
     graph.remove_edges_from(list(nx.selfloop_edges(graph)))
     if len(graph) < 2:
         raise ValueError('The network must have at least two nodes.')
@@ -168,24 +194,44 @@ def main(argv=None):
         parser.error('Invalid learning rate, regularization, IPW bounds, epsilon, tolerance or threshold.')
     if args.seed < 0:
         parser.error('--seed must be nonnegative.')
+    datasets = list(DATASETS) if 'all' in args.dataset else list(dict.fromkeys(args.dataset))
+    if args.seed_prior and len(datasets) != 1:
+        parser.error('--seed-prior requires exactly one dataset (each has its own node order).')
+    # A separate directory per invocation prevents overwriting previous runs.
+    batch_dir = args.output_dir / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ')
+    batch_dir.mkdir(parents=True, exist_ok=False)
+    print(f'Results directory: {batch_dir.resolve()}', flush=True)
+    for dataset in datasets:
+        try:
+            run_dataset(args, dataset, batch_dir)
+        except (OSError, ValueError, RuntimeError, nx.ExceededMaxIterations) as exc:
+            # Preserve completed experiments and continue with the next dataset.
+            error = {'dataset': dataset, 'error': str(exc)}
+            with (batch_dir / 'errors.jsonl').open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(error, ensure_ascii=False) + '\n')
+            print(f'{dataset} FAILED: {exc}', flush=True)
+    if (batch_dir / 'errors.jsonl').exists():
+        parser.exit(1, f'Some experiments failed; see {batch_dir / "errors.jsonl"}\n')
+
+
+def run_dataset(args, dataset, batch_dir, *, network_loader=load_network):
     rng = np.random.default_rng(args.seed)
     torch.manual_seed(args.seed)
-    try:
-        graph, communities, node_ids = load_network(args.dataset, args.datapath, args.seed)
-    except (OSError, ValueError, nx.ExceededMaxIterations) as exc:
-        parser.error(str(exc))
+    graph, communities, node_ids = network_loader(dataset, args.datapath, args.seed)
     N = len(graph)
     if args.min_cascade_size > N:
-        parser.error('--min-cascade-size cannot exceed the node count.')
+        raise ValueError('--min-cascade-size cannot exceed the node count.')
     A = propagation_matrix(graph, communities, rng)
     seed_prior = np.load(args.seed_prior, allow_pickle=False) if args.seed_prior else None
     if seed_prior is not None and (seed_prior.shape != (N,) or not np.isfinite(seed_prior).all()
                                    or np.any(seed_prior < 0) or not np.any(seed_prior > 0)):
-        parser.error('--seed-prior must contain a finite nonnegative length-N vector with positive mass.')
-    counts = args.n_sim or ([50, 100, 150, 200, 250] if args.dataset == 'LFR(Small)' else [500, 1000, 1500, 2000, 2500])
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    print(f'{args.dataset}: {N} nodes, {graph.number_of_edges()} edges, {len(set(communities.values()))} communities; directed={graph.is_directed()}')
+        raise ValueError('--seed-prior must contain a finite nonnegative length-N vector with positive mass.')
+    counts = args.n_sim or [N]
+    dataset_dir = batch_dir / dataset
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    print(f'{dataset}: {N} nodes, {graph.number_of_edges()} edges, {len(set(communities.values()))} communities; directed={graph.is_directed()}')
     settings = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
+    settings['dataset'] = dataset
     for run, n_sim in enumerate(counts):
         S, true_seeds = simulate_snapshots(A, n_sim, rng, args.min_cascade_size, args.max_attempts)
         prune_network, pruning_threshold = candidate_mask(S, communities)
@@ -199,8 +245,8 @@ def main(argv=None):
             return_details=True, device=args.device, verbose=not args.quiet)
         seed_accuracy = float(np.mean(details['seeds'] == true_seeds))
         # Include count, random seed and run number to distinguish sweep entries.
-        name = f'{args.dataset}_cascades{n_sim}_seed{args.seed}_run{run}'
-        artifact = args.output_dir / f'{name}.npz'
+        name = f'cascades{n_sim}_seed{args.seed}_run{run}'
+        artifact = dataset_dir / f'{name}.npz'
         np.savez_compressed(
             artifact, A=details['A'], W=details['W'], rho=details['rho'],
             seeds=details['seeds'], adjacency=details['adjacency'],
@@ -208,17 +254,22 @@ def main(argv=None):
             ipw_weights=details['ipw_weights'], snapshots=S,
             true_seeds=true_seeds, true_probabilities=A, node_ids=node_ids,
             community_labels=np.array([communities[i] for i in range(N)]),
-            candidate_mask=prune_network)
+            candidate_mask=prune_network,
+            original_labels=np.asarray([str(graph.nodes[i].get('original_label', communities[i])) for i in range(N)]),
+            true_adjacency=nx.to_numpy_array(graph, nodelist=list(range(N)), dtype=np.int8))
         record = {
-            'method': 'latent-seed-ComInf', 'dataset': args.dataset, 'n_nodes': N,
+            'method': 'latent-seed-ComInf', 'dataset': dataset, 'n_nodes': N,
+            'n_edges': graph.number_of_edges(), 'n_communities': len(set(communities.values())),
             'n_sim': n_sim, 'run': run, 'directed': graph.is_directed(),
             'roc_auc': auc[0], 'pr_auc': auc[1], 'precision': f1[0],
             'recall': f1[1], 'f1': f1[2], 'training_seconds': seconds,
             'seed_accuracy': seed_accuracy, 'pruning_threshold': pruning_threshold,
-            'candidate_edges': int(prune_network.sum()), 'artifact': str(artifact),
+            'candidate_edges': int(prune_network.sum()), 'artifact': str(artifact.resolve()),
             'settings': settings, 'history': details['history'],
         }
-        with (args.output_dir / 'result.jsonl').open('a', encoding='utf-8') as handle:
+        with (dataset_dir / f'{name}.json').open('w', encoding='utf-8') as handle:
+            json.dump(record, handle, ensure_ascii=False, indent=2)
+        with (batch_dir / 'result.jsonl').open('a', encoding='utf-8') as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + '\n')
         print(f'ROC-AUC={auc[0]:.4f}; PR-AUC={auc[1]:.4f}; F1={f1[2]:.3f}; seed accuracy={seed_accuracy:.3f}; time={seconds:.2f}s')
         print(f'Saved {artifact}')

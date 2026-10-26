@@ -1,74 +1,131 @@
 # ComInf
 
-This repository provides the official implementation of the **ComInf** model.
+ComInf infers information diffusion networks from final activation snapshots and node community labels, without requiring propagation timestamps or known source nodes. It estimates latent diffusion sources and learns network structure and propagation probabilities through a two-stage inference model.
 
----
+This repository includes the model implementation, synthetic and real-network experiments, and evaluation tools. Experiments simulate independent cascades on each network, train ComInf, and report network reconstruction performance and source identification accuracy.
 
-## Project Overview
+## Repository Structure
 
-**ComInf** is an algorithmic model designed for community-aware information diffusion network inference without timestamps. This repository contains the core source code, evaluation scripts, and real-world datasets used to validate the model's effectiveness.
-
----
-
-## Core Scripts & Usage
-
-The repository includes two main execution scripts to reproduce the experimental results under different experimental setups:
-
-### 1. Number of Diffusion Process Analysis (`main_process.py`)
-
-* Run this script to evaluate how the performance of the ComInf model scales and changes across **different numbers of propagation processes**.
-```bash
-python main_process.py
-
+```text
+ComInf/
+├── ComInf.py               # ComInf model, training, and evaluation
+├── main.py                 # Experiment entry point
+├── main_node.py            # LFR network-size experiments
+├── utils.py                # Mutual information, pruning, and helper functions
+├── requirements.txt        # Python dependencies
+├── README.md
+└── dataset/
+    ├── eu/                 # Email network: edge.txt, department.txt
+    ├── workplace/          # Workplace network: edge.txt, department.txt
+    └── Mastodon/           # Fakenews24_edges, Fakenews24_instances
 ```
 
+## Installation
 
+From the `ComInf` directory, install the dependencies:
 
-### 2. Network Scale Analysis (`main_node.py`)
-
-* Run this script to observe the model's performance and efficiency variations across networks with **different numbers of nodes (network sizes)**.
 ```bash
-python main_node.py
-
+pip install -r requirements.txt
+pip install tqdm
 ```
-
-
-
----
 
 ## Datasets
 
-The paper evaluates the ComInf model across three real-world datasets:
+The three real-network datasets are included in `dataset/`. The two LFR synthetic networks are generated at runtime.
 
-| Dataset | Source / Link | Description |
-| --- | --- | --- |
-| **Email** | [Dataset Link](https://snap.stanford.edu/data/email-Eu-core.html) | Real-world email communication network. |
-| **Workplace** | [Dataset Link](https://sociopatterns.org/datasets.html) | Workplace temporal interaction network. |
-| **Mastodon** | Located in the `dataset/` directory | Decentralized social network data (pre-included). |
+| Dataset argument | Network | Nodes | Default cascades |
+| --- | --- | ---: | ---: |
+| `LFR(Small)` | Synthetic, undirected | 100 | 100 |
+| `LFR(Medium)` | Synthetic, undirected | 1000 | 1000 |
+| `eu` | Email, directed | 1005 | 1005 |
+| `workplace` | Workplace, undirected | 92 | 92 |
+| `mastodon` | Mastodon, directed | 1340 | 1340 |
 
----
+All experiments use simulated diffusion snapshots, including those on real-network topologies.
 
-## 🚀 Quick Start
+## Running Experiments
 
-1. **Clone the repository**:
+Run all five datasets with default settings:
+
 ```bash
-git clone https://github.com/YourUsername/ComInf.git
-cd ComInf
-
+python main.py
 ```
 
+Run selected datasets with a specified number of cascades:
 
-2. **Install dependencies** (make sure to generate your `requirements.txt` if needed):
 ```bash
-pip install -r requirements.txt
-
+python main.py --dataset eu workplace mastodon --n-sim 1000
 ```
 
+Evaluate different cascade counts:
 
-3. **Prepare the data**:
-* The `mastodon` dataset is already included in the `dataset/` folder.
-* For `Email` and `Workplace` datasets, please download them from the links provided above and place them in the appropriate directory.
+```bash
+python main.py --dataset 'LFR(Small)' --n-sim 50 100 150
+```
 
+Each cascade count is applied to every selected dataset. Without `--n-sim`, the number of cascades defaults to the dataset's node count.
 
-4. **Run the experiments**:
-Execute `main_process.py` or `main_node.py` to view the experimental outcomes.
+Customize training and output settings:
+
+```bash
+python main.py --dataset workplace --n-sim 200 \
+  --seed-iterations 500 --iterations 10000 \
+  --seed 42 --device cpu --output-dir results_method
+```
+
+By default, training uses CUDA when available and CPU otherwise. The default maximum update counts are 500 for the first stage and 10,000 for the second stage, with early stopping enabled.
+
+For a quick pipeline check with minimal training:
+
+```bash
+python main.py --dataset 'LFR(Small)' --n-sim 12 \
+  --seed-iterations 1 --iterations 1 --device cpu --quiet
+```
+
+This check verifies execution and result saving; it is not a full training run. View all available options with:
+
+```bash
+python main.py --help
+```
+
+## Network-Size Experiments
+
+`main.py` evaluates different cascade counts across datasets. `main_node.py`
+evaluates different node counts on LFR networks, using the LFR parameters from
+`DNIT/mycode/main.py`.
+
+| Default node counts | Default cascades | Average / maximum degree | Community size |
+| --- | ---: | --- | --- |
+| 100, 150, 200, 250, 300 | 100 | 10 / 30 | 30–60 |
+| 1000, 1500, 2000, 2500, 3000 | 1000 | 15 / 50 | 20–50 |
+
+Run the full size sweep or select node counts:
+
+```bash
+python main_node.py
+python main_node.py --nodes 100 200 300
+python main_node.py --nodes 1000 2000 3000
+```
+
+Override cascade counts or perform a quick pipeline check:
+
+```bash
+python main_node.py --nodes 100 200 300 --n-sim 200
+python main_node.py --nodes 100 1000 --seed-iterations 1 --iterations 1 --device cpu --quiet
+```
+
+Node counts may be selected within 100–300 or 1000–3000. Training and simulation
+settings follow `main.py`; only the LFR generation parameters vary by size range.
+Results are saved under `results_node/<UTC timestamp>/LFR_<nodes>/`, using the
+same file formats described below. Run `python main_node.py --help` for options.
+
+## Results
+
+Each invocation saves results in a new `results_method/<UTC timestamp>/` directory, with a subdirectory for each dataset. Use `--output-dir` to change the results root.
+
+- **`.json`**: evaluation metrics, training time, experiment settings, and optimization history.
+- **`.npz`**: inferred network probabilities and adjacency, source estimates, simulated snapshots, and ground truth.
+- **`result.jsonl`**: combined records for successful experiments.
+- **`errors.jsonl`**: dataset errors, if any occur.
+
+Reported metrics include ROC-AUC, PR-AUC (average precision), precision, recall, F1, and source identification accuracy. Previous runs are preserved.
