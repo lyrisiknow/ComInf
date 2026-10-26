@@ -33,15 +33,13 @@ pip install tqdm
 
 The three real-network datasets are included in `dataset/`. The two LFR synthetic networks are generated at runtime.
 
-| Dataset argument | Network | Nodes | Default cascades |
+| Dataset argument | Network | Nodes |
 | --- | --- | ---: | ---: |
-| `LFR(Small)` | Synthetic, undirected | 100 | 100 |
-| `LFR(Medium)` | Synthetic, undirected | 1000 | 1000 |
-| `eu` | Email, directed | 1005 | 1005 |
-| `workplace` | Workplace, undirected | 92 | 92 |
-| `mastodon` | Mastodon, directed | 1340 | 1340 |
-
-All experiments use simulated diffusion snapshots, including those on real-network topologies.
+| `LFR(Small)` | Synthetic, undirected | 100 |
+| `LFR(Medium)` | Synthetic, undirected | 1000 |
+| `eu` | Email, directed | 1005 |
+| `workplace` | Workplace, undirected | 92 |
+| `mastodon` | Mastodon, directed | 1340 |
 
 ## Running Experiments
 
