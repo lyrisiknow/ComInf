@@ -34,7 +34,7 @@ pip install tqdm
 The three real-network datasets are included in `dataset/`. The two LFR synthetic networks are generated at runtime.
 
 | Dataset argument | Network | Nodes |
-| --- | --- | ---: | ---: |
+| --- | --- | ---: |
 | `LFR(Small)` | Synthetic, undirected | 100 |
 | `LFR(Medium)` | Synthetic, undirected | 1000 |
 | `eu` | Email, directed | 1005 |
